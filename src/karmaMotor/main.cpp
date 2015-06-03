@@ -831,117 +831,161 @@ protected:
 
         // wrt root frame: frame centered at c_sag with x-axis pointing rightward,
         // y-axis pointing forward and z-axis pointing upward
-        Matrix H0(4,4); H0.zero();
-        H0(1,0)=1.0;
-        H0(0,1)=-1.0;
-        H0(2,2)=1.0;
-        H0(0,3)=c_sag[0]; H0(1,3)=c_sag[1]; H0(2,3)=c_sag[2]; H0(3,3)=1.0;
+        Matrix H0(4,4);
 
-        double theta_rad=CTRL_DEG2RAD*theta;
-        double _c=cos(theta_rad);
-        double _s=sin(theta_rad);
 
-        // start at point wrt H0 frame translated in R*[_c,_s], keeping orientation
-        Matrix H1=eye(4,4);
-        H1(0,3)=radius*_c; H1(1,3)=radius*_s;
+        Vector xd0;
+        Vector od0;
+        Vector xd1;
+        Vector od1;
 
-        // go back into root frame
-        H1=H0*H1;
+        int context;
 
-        // apply final axes
-        Matrix R(3,3); R.zero();
-        R(0,0)=-1.0;
-        R(2,1)=-1.0;
-        R(1,2)=-1.0;
-
-        H0.setSubmatrix(R,0,0);
-        H1.setSubmatrix(R,0,0);
-
-        Vector xd0=H0.getCol(3).subVector(0,2);
-        Vector od0=dcm2axis(H0);
-
-        Vector xd1=H1.getCol(3).subVector(0,2);
-        Vector od1=dcm2axis(H1);
-
-        printf("identified locations on the sagittal plane...\n");
-        printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-
-        // choose the arm
-        if (armType=="selectable")
+        double rad = radius;
+        double res = 100.0;
+        while (res>0.0)
         {
-            if (xd0[1]>=0.0)
-                iCartCtrl=iCartCtrlR;
-            else
-                iCartCtrl=iCartCtrlL;
-        }
-        else if (armType=="left")
-            iCartCtrl=iCartCtrlL;
-        else
-            iCartCtrl=iCartCtrlR;
+            printf("\n Trying action with radius =%g\n",rad);
 
-        // recover the original place: do translation and rotation
-        if (c[1]!=0.0)
-        {
-            Vector r(4,0.0);
-            r[2]=-1.0;
-            r[3]=atan2(c[1],fabs(c[0]));
-            Matrix H=axis2dcm(r);
+            H0.zero();
+            H0(1,0)=1.0;
+            H0(0,1)=-1.0;
+            H0(2,2)=1.0;
+            H0(0,3)=c_sag[0]; H0(1,3)=c_sag[1]; H0(2,3)=c_sag[2]; H0(3,3)=1.0;
 
-            H(0,3)=H0(0,3);
-            H(1,3)=H0(1,3)+c[1];
-            H(2,3)=H0(2,3);
-            H0(0,3)=H0(1,3)=H0(2,3)=0.0;
-            H0=H*H0;
 
-            H(0,3)=H1(0,3);
-            H(1,3)=H1(1,3)+c[1];
-            H(2,3)=H1(2,3);
-            H1(0,3)=H1(1,3)=H1(2,3)=0.0;
-            H1=H*H1;
+            double theta_rad=CTRL_DEG2RAD*theta;
+            double _c=cos(theta_rad);
+            double _s=sin(theta_rad);
+
+            // start at point wrt H0 frame translated in R*[_c,_s], keeping orientation
+            Matrix H1=eye(4,4);
+            H1(0,3)=rad*_c; H1(1,3)=rad*_s;
+
+            // go back into root frame
+            H1=H0*H1;
+
+            // apply final axes
+            Matrix R(3,3); R.zero();
+            R(0,0)=-1.0;
+            R(2,1)=-1.0;
+            R(1,2)=-1.0;
+
+            H0.setSubmatrix(R,0,0);
+            H1.setSubmatrix(R,0,0);
 
             xd0=H0.getCol(3).subVector(0,2);
             od0=dcm2axis(H0);
 
             xd1=H1.getCol(3).subVector(0,2);
             od1=dcm2axis(H1);
+
+            printf("identified locations on the sagittal plane...\n");
+            printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+
+            // choose the arm
+            if (armType=="selectable")
+            {
+                if (xd0[1]>=0.0)
+                    iCartCtrl=iCartCtrlR;
+                else
+                    iCartCtrl=iCartCtrlL;
+            }
+            else if (armType=="left")
+                iCartCtrl=iCartCtrlL;
+            else
+                iCartCtrl=iCartCtrlR;
+
+            // recover the original place: do translation and rotation
+            if (c[1]!=0.0)
+            {
+                Vector r(4,0.0);
+                r[2]=-1.0;
+                r[3]=atan2(c[1],fabs(c[0]));
+                Matrix H=axis2dcm(r);
+
+                H(0,3)=H0(0,3);
+                H(1,3)=H0(1,3)+c[1];
+                H(2,3)=H0(2,3);
+                H0(0,3)=H0(1,3)=H0(2,3)=0.0;
+                H0=H*H0;
+
+                H(0,3)=H1(0,3);
+                H(1,3)=H1(1,3)+c[1];
+                H(2,3)=H1(2,3);
+                H1(0,3)=H1(1,3)=H1(2,3)=0.0;
+                H1=H*H1;
+
+                xd0=H0.getCol(3).subVector(0,2);
+                od0=dcm2axis(H0);
+
+                xd1=H1.getCol(3).subVector(0,2);
+                od1=dcm2axis(H1);
+            }
+
+            printf("in-place locations...\n");
+            printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+
+            // apply tool (if any)
+            Matrix invFrame=SE3inv(frame);
+            H0=H0*invFrame;
+            H1=H1*invFrame;
+
+            xd0=H0.getCol(3).subVector(0,2);
+            od0=dcm2axis(H0);
+
+            xd1=H1.getCol(3).subVector(0,2);
+            od1=dcm2axis(H1);
+
+            printf("apply tool (if any)...\n");
+            printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+
+            // deal with the arm context
+            iCartCtrl->storeContext(&context);
+
+            Bottle options;
+            Bottle &straightOpt=options.addList();
+            straightOpt.addString("straightness");
+            straightOpt.addDouble(30.0);
+            iCartCtrl->tweakSet(options);
+            changeElbowHeight();
+
+            Vector dof;
+            iCartCtrl->getDOF(dof);
+
+            dof=1.0; dof[1]=0.0;
+            iCartCtrl->setDOF(dof,dof);
+
+
+            // simulate the movements
+            //if (simulation) {
+            Vector xdhat0,odhat0,xdhat1,odhat1,qdhat;
+            iCartCtrl->askForPose(xd0,od0,xdhat0,odhat0,qdhat);
+            iCartCtrl->askForPose(qdhat,xd1,od1,xdhat1,odhat1,qdhat);
+
+            double e_x0=norm(xd0-xdhat0);
+            double e_o0=norm(od0-odhat0);
+            printf("testing x=(%s); o=(%s) => xhat=(%s); ohat=(%s) ... |e_x|=%g; |e_o|=%g\n",
+                   xd0.toString(3,3).c_str(),od0.toString(3,3).c_str(),
+                   xdhat0.toString(3,3).c_str(),odhat0.toString(3,3).c_str(),
+                   e_x0,e_o0);
+
+            double e_x1=norm(xd1-xdhat1);
+            double e_o1=norm(od1-odhat1);
+            printf("testing x=(%s); o=(%s) => xhat=(%s); ohat=(%s) ... |e_x|=%g; |e_o|=%g\n",
+                   xd1.toString(3,3).c_str(),od1.toString(3,3).c_str(),
+                   xdhat1.toString(3,3).c_str(),odhat1.toString(3,3).c_str(),
+                   e_x1,e_o1);
+
+            double nearness_penalty=((norm(xdhat0)<0.15)||(norm(xdhat1)<0.15)?10.0:0.0);
+            printf("nearness penalty=%g\n",nearness_penalty);
+            res=e_x0+e_o0+e_x1+e_o1+nearness_penalty;
+            printf("final quality=%g\n",res);
+            rad = rad - 0.02;
         }
-
-        printf("in-place locations...\n");
-        printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-
-        // apply tool (if any)
-        Matrix invFrame=SE3inv(frame);
-        H0=H0*invFrame;
-        H1=H1*invFrame;
-
-        xd0=H0.getCol(3).subVector(0,2);
-        od0=dcm2axis(H0);
-
-        xd1=H1.getCol(3).subVector(0,2);
-        od1=dcm2axis(H1);
-
-        printf("apply tool (if any)...\n");
-        printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-
-        // deal with the arm context
-        int context;
-        iCartCtrl->storeContext(&context);
-
-        Bottle options;
-        Bottle &straightOpt=options.addList();
-        straightOpt.addString("straightness");
-        straightOpt.addDouble(30.0);
-        iCartCtrl->tweakSet(options);
-        changeElbowHeight();
-
-        Vector dof;
-        iCartCtrl->getDOF(dof);
-
-        dof=1.0; dof[1]=0.0;
-        iCartCtrl->setDOF(dof,dof);
 
         // execute the movements
         Vector offs(3,0.0); offs[2]=0.05;
@@ -1097,7 +1141,7 @@ protected:
         Bottle options;
         Bottle &straightOpt=options.addList();
         straightOpt.addString("straightness");
-        straightOpt.addDouble(30.0);
+        straightOpt.addDouble(50.0);
         iCartCtrl->tweakSet(options);
         changeElbowHeight();
 
