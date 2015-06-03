@@ -633,333 +633,6 @@ protected:
     }
 
     /************************************************************************/
-    void pull(const Vector &c, const double theta, const double radius,
-              const string &armType="selectable", const Matrix &frame=eye(4,4))
-    {
-        // wrt root frame: frame centered at c with x-axis pointing rightward,
-        // y-axis pointing forward and z-axis pointing upward
-        Matrix H0(4,4); H0.zero();
-        H0(1,0)=1.0;
-        H0(0,1)=-1.0;
-        H0(2,2)=1.0;
-        H0(0,3)=c[0]; H0(1,3)=c[1]; H0(2,3)=c[2]; H0(3,3)=1.0;
-
-        double theta_rad=CTRL_DEG2RAD*theta;
-        double _c=cos(theta_rad);
-        double _s=sin(theta_rad);
-        double _theta=CTRL_RAD2DEG*atan2(_s,_c);    // to have theta in [-180.0,180.0]
-        double epsilon=0.05;
-
-        // wrt H0 frame: frame centered at R*[_c,_s] with z-axis pointing inward
-        // and x-axis tangential
-        Matrix H1(4,4); H1.zero();
-        H1(0,0)=-_s;       H1(1,0)=_c;
-        H1(2,1)=-1.0;
-        H1(0,2)=-_c;       H1(1,2)=-_s;
-        H1(0,3)=radius*_c; H1(1,3)=radius*_s; H1(3,3)=1.0;
-
-        // XXX Leave the orientation unchanged here
-
-        // wrt H0 frame: frame centered at R*[_c,_s] with z-axis pointing outward
-        // and x-axis tangential
-        Matrix H2(4,4); H2.zero();
-        H2(0,0)=_s;        H2(1,0)=-_c;
-        H2(2,1)=-1.0;
-        H2(0,2)=_c;        H2(1,2)=_s;
-        H2(0,3)=radius*_c; H2(1,3)=radius*_s; H2(3,3)=1.0;
-
-        // matrices that serve to account for pushing with the back of the hand
-        Matrix H1eps=H1; Matrix H2eps=H2;
-        H1eps(0,3)+=epsilon*_c; H1eps(1,3)+=epsilon*_s;
-        H2eps(0,3)+=epsilon*_c; H2eps(1,3)+=epsilon*_s;
-
-        // go back into root frame and apply tool (if any)
-        Matrix invFrame=SE3inv(frame);
-        H1=H0*H1*invFrame;
-        H2=H0*H2*invFrame;
-        H1eps=H0*H1eps*invFrame;
-        H2eps=H0*H2eps*invFrame;
-
-        Vector xd1=H1.getCol(3).subVector(0,2);
-        Vector od1=dcm2axis(H1);
-
-        Vector xd2=H2.getCol(3).subVector(0,2);
-        Vector od2=dcm2axis(H2);
-
-        Vector xd1eps=H1eps.getCol(3).subVector(0,2);
-        Vector od1eps=dcm2axis(H1eps);
-
-        Vector xd2eps=H2eps.getCol(3).subVector(0,2);
-        Vector od2eps=dcm2axis(H2eps);
-
-        printf("identified locations...\n");
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-        printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-
-        // choose the arm
-        if (armType=="selectable")
-        {
-            if (xd1[1]>=0.0)
-                iCartCtrl=iCartCtrlR;
-            else
-                iCartCtrl=iCartCtrlL;
-        }
-        else if (armType=="left")
-            iCartCtrl=iCartCtrlL;
-        else
-            iCartCtrl=iCartCtrlR;
-
-        // deal with the arm context
-        int context;
-        iCartCtrl->storeContext(&context);
-
-        Bottle options;
-        Bottle &straightOpt=options.addList();
-        straightOpt.addString("straightness");
-        straightOpt.addDouble(20.0);
-        iCartCtrl->tweakSet(options);
-        changeElbowHeight();
-
-        Vector dof;
-        iCartCtrl->getDOF(dof);
-
-        dof=1.0; dof[1]=0.0;
-        iCartCtrl->setDOF(dof,dof);
-
-        // execute the movement
-        Vector offs(3,0.0); offs[2]=0.1;
-        if (!interrupting)
-        {
-            Vector x2_off=xd2+offs;
-
-            printf("moving to: x=(%s); o=(%s)\n",x2_off.toString(3,3).c_str(),od2.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(x2_off,od2,1.0);
-            iCartCtrl->waitMotionDone(0.1,4.0);
-        }
-
-        if (!interrupting)
-        {
-            printf("moving to: x=(%s); o=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xd2,od2,1.0);
-            iCartCtrl->waitMotionDone(0.1,4.0);
-        }
-
-        if (!interrupting)
-        {
-
-            printf("moving to: x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xd1,od1,1.0);
-            iCartCtrl->waitMotionDone(0.1,3.0);
-        }
-
-        if (!interrupting)
-        {
-            Vector x1_off=xd1+offs;
-
-            printf("moving to: x=(%s); o=(%s)\n",x1_off.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(x1_off,od1,1.0);
-            iCartCtrl->waitMotionDone(0.1,2.0);
-        }
-
-        iCartCtrl->restoreContext(context);
-        iCartCtrl->deleteContext(context);
-    }
-
-    /************************************************************************/
-    double slide(const Vector &c, const double theta, const double radius,
-                 const string &armType="selectable", const Matrix &frame=eye(4,4))
-    {
-        // c0 is the projection of c on the sagittal plane
-        Vector c_sag=c;
-        c_sag[1]=0.0;
-
-        // wrt root frame: frame centered at c_sag with x-axis pointing rightward,
-        // y-axis pointing forward and z-axis pointing upward
-        Matrix H0(4,4); H0.zero();
-        H0(1,0)=1.0;
-        H0(0,1)=-1.0;
-        H0(2,2)=1.0;
-        H0(0,3)=c_sag[0]; H0(1,3)=c_sag[1]; H0(2,3)=c_sag[2]; H0(3,3)=1.0;
-
-        double theta_rad=CTRL_DEG2RAD*theta;
-        double _c=cos(theta_rad);
-        double _s=sin(theta_rad);
-
-        // wrt H0 frame: frame translated in R*[_c,_s]
-        Matrix H1=eye(4,4);
-        H1(0,3)=radius*_c; H1(1,3)=radius*_s;
-
-        // wrt H1 frame: frame translated in [0,-dist]
-        Matrix H2=eye(4,4);
-        H2(1,3)=-radius;
-
-        // wrt H1 frame: frame translated in [0,dist]
-        Matrix H3=eye(4,4);
-        H3(1,3)=radius;
-
-        // go back into root frame
-        H2=H0*H1*H2;
-        H3=H0*H1*H3;
-        H1=H0*H1;
-
-        // apply final axes
-        Matrix R(3,3); R.zero();
-        R(0,0)=-1.0;
-        R(2,1)=-1.0;
-        R(1,2)=-1.0;
-
-        H1.setSubmatrix(R,0,0);
-        H2.setSubmatrix(R,0,0);
-        H3.setSubmatrix(R,0,0);
-
-        Vector xd1=H1.getCol(3).subVector(0,2);
-        Vector od1=dcm2axis(H1);
-
-        Vector xd2=H2.getCol(3).subVector(0,2);
-        Vector od2=dcm2axis(H2);
-
-        Vector xd3=H3.getCol(3).subVector(0,2);
-        Vector od3=dcm2axis(H3);
-
-        printf("identified locations on the sagittal plane...\n");
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-        printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-        printf("xd3=(%s) od3=(%s)\n",xd3.toString(3,3).c_str(),od3.toString(3,3).c_str());
-
-        // choose the arm
-        if (armType=="selectable")
-        {
-            if (xd1[1]>=0.0)
-                iCartCtrl=iCartCtrlR;
-            else
-                iCartCtrl=iCartCtrlL;
-        }
-        else if (armType=="left")
-            iCartCtrl=iCartCtrlL;
-        else
-            iCartCtrl=iCartCtrlR;
-
-        // recover the original place: do translation and rotation
-        if (c[1]!=0.0)
-        {
-            Vector r(4,0.0);
-            r[2]=-1.0;
-            r[3]=atan2(c[1],fabs(c[0]));
-            Matrix H=axis2dcm(r);
-
-            H(0,3)=H1(0,3);
-            H(1,3)=H1(1,3)+c[1];
-            H(2,3)=H1(2,3);
-            H1(0,3)=H1(1,3)=H1(2,3)=0.0;
-            H1=H*H1;
-
-            H(0,3)=H2(0,3);
-            H(1,3)=H2(1,3)+c[1];
-            H(2,3)=H2(2,3);
-            H2(0,3)=H2(1,3)=H2(2,3)=0.0;
-            H2=H*H2;
-
-            H(0,3)=H3(0,3);
-            H(1,3)=H3(1,3)+c[1];
-            H(2,3)=H3(2,3);
-            H3(0,3)=H3(1,3)=H3(2,3)=0.0;
-            H3=H*H3;
-
-
-            xd1=H1.getCol(3).subVector(0,2);
-            od1=dcm2axis(H1);
-
-            xd2=H2.getCol(3).subVector(0,2);
-            od2=dcm2axis(H2);
-
-            xd3=H3.getCol(3).subVector(0,2);
-            od3=dcm2axis(H3);
-        }
-
-        printf("in-place locations...\n");
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-        printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-        printf("xd3=(%s) od3=(%s)\n",xd3.toString(3,3).c_str(),od3.toString(3,3).c_str());
-
-        // apply tool (if any)
-        Matrix invFrame=SE3inv(frame);
-        H1=H1*invFrame;
-        H2=H2*invFrame;
-        H3=H3*invFrame;
-
-        xd1=H1.getCol(3).subVector(0,2);
-        od1=dcm2axis(H1);
-
-        xd2=H2.getCol(3).subVector(0,2);
-        od2=dcm2axis(H2);
-
-        xd3=H3.getCol(3).subVector(0,2);
-        od3=dcm2axis(H3);
-
-
-        printf("apply tool (if any)...\n");
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-        printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-        printf("xd3=(%s) od3=(%s)\n",xd3.toString(3,3).c_str(),od3.toString(3,3).c_str());
-
-        // deal with the arm context
-        int context;
-        iCartCtrl->storeContext(&context);
-
-        Bottle options;
-        Bottle &straightOpt=options.addList();
-        straightOpt.addString("straightness");
-        straightOpt.addDouble(30.0);
-        iCartCtrl->tweakSet(options);
-        changeElbowHeight();
-
-        Vector dof;
-        iCartCtrl->getDOF(dof);
-
-        dof=1.0; dof[1]=0.0;
-        iCartCtrl->setDOF(dof,dof);
-
-        double res=0.0;
-
-        // execute the movements
-        Vector offs(3,0.0); offs[2]=0.05;
-        if (!interrupting)
-        {
-            Vector x=xd1+offs;
-
-            printf("moving to: x=(%s); o=(%s)\n",x.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(x,od1,2.0);
-            iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 1 done\n");
-            Time::delay(2);
-        }
-
-        if (!interrupting)
-        {
-            printf("moving to: x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xd1,od1,1.5);
-            iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 2 done\n");
-            Time::delay(2);
-        }
-
-        if (!interrupting)
-        {
-            printf("moving to: x=(%s); o=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xd2,od2,3.5);
-            iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 3 done\n");
-            Time::delay(2);
-        }
-
-
-        iCartCtrl->restoreContext(context);
-        iCartCtrl->deleteContext(context);
-
-        return res;
-    }
-
-    /************************************************************************/
     double draw(bool simulation, const Vector &c, const double theta, const double radius,
                 const double dist, const string &armType, const Matrix &frame=eye(4,4))
     {
@@ -1085,7 +758,7 @@ protected:
 
         dof=1.0; dof[1]=0.0;
         iCartCtrl->setDOF(dof,dof);
-        
+
         double res=0.0;
 
         // simulate the movements
@@ -1146,6 +819,330 @@ protected:
         iCartCtrl->deleteContext(context);
 
         return res;
+    }
+
+    /************************************************************************/
+    void pull(const Vector &c, const double theta, const double radius,
+              const string &armType="selectable", const Matrix &frame=eye(4,4))
+    {
+        // c0 is the projection of c on the sagittal plane
+        Vector c_sag=c;
+        c_sag[1]=0.0;
+
+        // wrt root frame: frame centered at c_sag with x-axis pointing rightward,
+        // y-axis pointing forward and z-axis pointing upward
+        Matrix H0(4,4); H0.zero();
+        H0(1,0)=1.0;
+        H0(0,1)=-1.0;
+        H0(2,2)=1.0;
+        H0(0,3)=c_sag[0]; H0(1,3)=c_sag[1]; H0(2,3)=c_sag[2]; H0(3,3)=1.0;
+
+        double theta_rad=CTRL_DEG2RAD*theta;
+        double _c=cos(theta_rad);
+        double _s=sin(theta_rad);
+
+        // start at point wrt H0 frame translated in R*[_c,_s], keeping orientation
+        Matrix H1=eye(4,4);
+        H1(0,3)=radius*_c; H1(1,3)=radius*_s;
+
+        // go back into root frame
+        H1=H0*H1;
+
+        // apply final axes
+        Matrix R(3,3); R.zero();
+        R(0,0)=-1.0;
+        R(2,1)=-1.0;
+        R(1,2)=-1.0;
+
+        H0.setSubmatrix(R,0,0);
+        H1.setSubmatrix(R,0,0);
+
+        Vector xd0=H0.getCol(3).subVector(0,2);
+        Vector od0=dcm2axis(H0);
+
+        Vector xd1=H1.getCol(3).subVector(0,2);
+        Vector od1=dcm2axis(H1);
+
+        printf("identified locations on the sagittal plane...\n");
+        printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+
+        // choose the arm
+        if (armType=="selectable")
+        {
+            if (xd0[1]>=0.0)
+                iCartCtrl=iCartCtrlR;
+            else
+                iCartCtrl=iCartCtrlL;
+        }
+        else if (armType=="left")
+            iCartCtrl=iCartCtrlL;
+        else
+            iCartCtrl=iCartCtrlR;
+
+        // recover the original place: do translation and rotation
+        if (c[1]!=0.0)
+        {
+            Vector r(4,0.0);
+            r[2]=-1.0;
+            r[3]=atan2(c[1],fabs(c[0]));
+            Matrix H=axis2dcm(r);
+
+            H(0,3)=H0(0,3);
+            H(1,3)=H0(1,3)+c[1];
+            H(2,3)=H0(2,3);
+            H0(0,3)=H0(1,3)=H0(2,3)=0.0;
+            H0=H*H0;
+
+            H(0,3)=H1(0,3);
+            H(1,3)=H1(1,3)+c[1];
+            H(2,3)=H1(2,3);
+            H1(0,3)=H1(1,3)=H1(2,3)=0.0;
+            H1=H*H1;
+
+            xd0=H0.getCol(3).subVector(0,2);
+            od0=dcm2axis(H0);
+
+            xd1=H1.getCol(3).subVector(0,2);
+            od1=dcm2axis(H1);
+        }
+
+        printf("in-place locations...\n");
+        printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+
+        // apply tool (if any)
+        Matrix invFrame=SE3inv(frame);
+        H0=H0*invFrame;
+        H1=H1*invFrame;
+
+        xd0=H0.getCol(3).subVector(0,2);
+        od0=dcm2axis(H0);
+
+        xd1=H1.getCol(3).subVector(0,2);
+        od1=dcm2axis(H1);
+
+        printf("apply tool (if any)...\n");
+        printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+
+        // deal with the arm context
+        int context;
+        iCartCtrl->storeContext(&context);
+
+        Bottle options;
+        Bottle &straightOpt=options.addList();
+        straightOpt.addString("straightness");
+        straightOpt.addDouble(30.0);
+        iCartCtrl->tweakSet(options);
+        changeElbowHeight();
+
+        Vector dof;
+        iCartCtrl->getDOF(dof);
+
+        dof=1.0; dof[1]=0.0;
+        iCartCtrl->setDOF(dof,dof);
+
+        // execute the movements
+        Vector offs(3,0.0); offs[2]=0.05;
+        if (!interrupting)
+        {
+            Vector x=xd0+offs;
+
+            printf("moving to: x=(%s); o=(%s)\n",x.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(x,od0,2.0);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+            printf("movement 1 done\n");
+            Time::delay(2);
+        }
+
+        if (!interrupting)
+        {
+            printf("moving to: x=(%s); o=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xd0,od0,1.5);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+            printf("movement 2 done\n");
+            Time::delay(2);
+        }
+
+        if (!interrupting)
+        {
+            printf("moving to: x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xd1,od1,3.5);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+            printf("movement 3 done\n");
+            Time::delay(2);
+        }
+
+
+        iCartCtrl->restoreContext(context);
+        iCartCtrl->deleteContext(context);
+
+        return;
+    }
+    /************************************************************************/
+    void slide(const Vector &c, const double theta, const double radius,
+                 const string &armType="selectable", const Matrix &frame=eye(4,4))
+    {
+        // c0 is the projection of c on the sagittal plane
+        Vector c_sag=c;
+        c_sag[1]=0.0;
+
+        // wrt root frame: frame centered at c_sag with x-axis pointing rightward,
+        // y-axis pointing forward and z-axis pointing upward
+        Matrix H0(4,4); H0.zero();
+        H0(1,0)=1.0;
+        H0(0,1)=-1.0;
+        H0(2,2)=1.0;
+        H0(0,3)=c_sag[0]; H0(1,3)=c_sag[1]; H0(2,3)=c_sag[2]; H0(3,3)=1.0;
+
+        double theta_rad=CTRL_DEG2RAD*theta;
+        double _c=cos(theta_rad);
+        double _s=sin(theta_rad);
+
+        // start at point wrt H0 frame translated in R*[_c,_s], keeping orientation
+        Matrix Hstart=eye(4,4);
+        Hstart(0,3)=radius*_c; Hstart(1,3)=radius*_s;
+
+        // finish at point wrt H0 frame translated in -R*[_c,_s], that is, at the opposite side of the circle, keeping orientation
+        Matrix Hend=eye(4,4);
+        Hend(0,3)=-radius*_c; Hend(1,3)=-radius*_s;
+
+        // go back into root frame
+        Hstart=H0*Hstart;
+        Hend=H0*Hend;
+
+        // apply final axes
+        Matrix R(3,3); R.zero();
+        R(0,0)=-1.0;
+        R(2,1)=-1.0;
+        R(1,2)=-1.0;
+
+        Hstart.setSubmatrix(R,0,0);
+        Hend.setSubmatrix(R,0,0);
+
+        Vector xdstart=Hstart.getCol(3).subVector(0,2);
+        Vector odstart=dcm2axis(Hstart);
+
+        Vector xdend=Hend.getCol(3).subVector(0,2);
+        Vector odend=dcm2axis(Hend);
+
+        printf("identified locations on the sagittal plane...\n");
+        printf("xdstart=(%s) odstart=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
+        printf("xdend=(%s) odend=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
+
+        // choose the arm
+        if (armType=="selectable")
+        {
+            if (xdstart[1]>=0.0)
+                iCartCtrl=iCartCtrlR;
+            else
+                iCartCtrl=iCartCtrlL;
+        }
+        else if (armType=="left")
+            iCartCtrl=iCartCtrlL;
+        else
+            iCartCtrl=iCartCtrlR;
+
+        // recover the original place: do translation and rotation
+        if (c[1]!=0.0)
+        {
+            Vector r(4,0.0);
+            r[2]=-1.0;
+            r[3]=atan2(c[1],fabs(c[0]));
+            Matrix H=axis2dcm(r);
+
+            H(0,3)=Hstart(0,3);
+            H(1,3)=Hstart(1,3)+c[1];
+            H(2,3)=Hstart(2,3);
+            Hstart(0,3)=Hstart(1,3)=Hstart(2,3)=0.0;
+            Hstart=H*Hstart;
+
+            H(0,3)=Hend(0,3);
+            H(1,3)=Hend(1,3)+c[1];
+            H(2,3)=Hend(2,3);
+            Hend(0,3)=Hend(1,3)=Hend(2,3)=0.0;
+            Hend=H*Hend;
+
+            xdstart=Hstart.getCol(3).subVector(0,2);
+            odstart=dcm2axis(Hstart);
+
+            xdend=Hend.getCol(3).subVector(0,2);
+            odend=dcm2axis(Hend);
+        }
+
+        printf("in-place locations...\n");
+        printf("xdstart=(%s) odstart=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
+        printf("xdend=(%s) odend=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
+
+        // apply tool (if any)
+        Matrix invFrame=SE3inv(frame);
+        Hstart=Hstart*invFrame;
+        Hend=Hend*invFrame;
+
+        xdstart=Hstart.getCol(3).subVector(0,2);
+        odstart=dcm2axis(Hstart);
+
+        xdend=Hend.getCol(3).subVector(0,2);
+        odend=dcm2axis(Hend);
+
+        printf("apply tool (if any)...\n");
+        printf("xdstart=(%s) odstart=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
+        printf("xdend=(%s) odend=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
+
+        // deal with the arm context
+        int context;
+        iCartCtrl->storeContext(&context);
+
+        Bottle options;
+        Bottle &straightOpt=options.addList();
+        straightOpt.addString("straightness");
+        straightOpt.addDouble(30.0);
+        iCartCtrl->tweakSet(options);
+        changeElbowHeight();
+
+        Vector dof;
+        iCartCtrl->getDOF(dof);
+
+        dof=1.0; dof[1]=0.0;
+        iCartCtrl->setDOF(dof,dof);
+
+        // execute the movements
+        Vector offs(3,0.0); offs[2]=0.05;
+        if (!interrupting)
+        {
+            Vector x=xdstart+offs;
+
+            printf("moving to: x=(%s); o=(%s)\n",x.toString(3,3).c_str(),odstart.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(x,odstart,2.0);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+            printf("movement 1 done\n");
+            Time::delay(2);
+        }
+
+        if (!interrupting)
+        {
+            printf("moving to: x=(%s); o=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xdstart,odstart,1.5);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+            printf("movement 2 done\n");
+            Time::delay(2);
+        }
+
+        if (!interrupting)
+        {
+            printf("moving to: x=(%s); o=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xdend,odend,3.5);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+            printf("movement 3 done\n");
+            Time::delay(2);
+        }
+
+
+        iCartCtrl->restoreContext(context);
+        iCartCtrl->deleteContext(context);
+
+        return;
     }
 
     /************************************************************************/
