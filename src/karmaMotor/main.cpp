@@ -790,7 +790,7 @@ protected:
         // execute the movements
         else
         {
-            Vector offs(3,0.0); offs[2]=0.05;
+            Vector offs(3,0.0); offs[2]=0.06;
             if (!interrupting)
             {
                 Vector x=xd1+offs;
@@ -990,7 +990,7 @@ protected:
         }
 
         // execute the movements
-        Vector offs(3,0.0); offs[2]=0.05;
+        Vector offs(3,0.0); offs[2]=0.06;
         if (!interrupting)
         {
             Vector xA=xd0+offs;
@@ -1092,11 +1092,11 @@ protected:
             Hstart.setSubmatrix(R,0,0);
             Hend.setSubmatrix(R,0,0);
 
-            Vector xdstart=Hstart.getCol(3).subVector(0,2);
-            Vector odstart=dcm2axis(Hstart);
+            xdstart=Hstart.getCol(3).subVector(0,2);
+            odstart=dcm2axis(Hstart);
 
-            Vector xdend=Hend.getCol(3).subVector(0,2);
-            Vector odend=dcm2axis(Hend);
+            xdend=Hend.getCol(3).subVector(0,2);
+            odend=dcm2axis(Hend);
 
             printf("identified locations on the sagittal plane...\n");
             printf("xdstart=(%s) odstart=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
@@ -1205,12 +1205,12 @@ protected:
 
         // execute the movements
         cout << "Starting slide Execution" << endl;
-        Vector offs(3,0.0); offs[2]=0.05;
+        Vector offs(3,0.0); offs[2]=0.06;
+
         if (!interrupting)
         {
             cout << "Approach" << endl;
-             // XXX this assignation causes to crash, check the bug
-            Vector xA=xdstart+offs;
+            Vector xA=xdstart-offs/2;
 
             printf("moving to: x=(%s); o=(%s)\n",xA.toString(3,3).c_str(),odstart.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xA,odstart,2.0);
@@ -1218,7 +1218,7 @@ protected:
             printf("movement 1 done\n");
             Time::delay(1);
         }
-
+    /*
         if (!interrupting)
         {
             cout << "Fine Grab " << endl;
@@ -1229,11 +1229,12 @@ protected:
             printf("movement 2 done\n");
             Time::delay(1);
         }
-
+*/
         if (!interrupting)
         {
-            printf("moving to: x=(%s); o=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xdend,odend,3.5);
+            Vector xB=xdend - offs/2;
+            printf("moving to: x=(%s); o=(%s)\n",xB.toString(3,3).c_str(),odend.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xB,odend,3.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
             printf("movement 3 done\n");
             Time::delay(1);
@@ -1241,10 +1242,10 @@ protected:
 
         if (!interrupting)
         {
-            Vector xB=xdend+offs;
+            Vector xC=xdend+offs;
 
-            printf("moving to: x=(%s); o=(%s)\n",xB.toString(3,3).c_str(),odstart.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xB,odstart,2.0);
+            printf("moving to: x=(%s); o=(%s)\n",xC.toString(3,3).c_str(),odend.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xC,odend,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
             printf("movement 4 done\n");
             Time::delay(1);
