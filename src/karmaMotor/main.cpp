@@ -49,6 +49,7 @@ implemented) is running.
 \section portsc_sec Ports Created 
 - \e /karmaMotor/rpc receives the information to execute the 
   motor action as a Bottle. It manages the following commands:
+
   -# <b>Push</b>: <i>[push] cx cy cz theta radius</i>. \n
   The coordinates <i>(cx,cy,cz)</i> represent in meters the
   position of the object's centroid to be pushed; <i>theta</i>,
@@ -58,7 +59,8 @@ implemented) is running.
   contained in the x-y plane. \n
   The reply <i>[ack]</i> is returned as soon as the push is
   accomplished.
-  -# <b>Draw</b>: <i>[draw] cx cy cz theta radius dist</i>. \n
+
+  -# <b>Draw / Pull</b>: <i>[draw]/[pull] cx cy cz theta radius dist</i>. \n
   The coordinates <i>(cx,cy,cz)</i> represent in meters the
   position of the object's centroid to be drawn closer;
   <i>theta</i>, given in degrees, and <i>radius</i>, specified
@@ -66,32 +68,64 @@ implemented) is running.
   that is located onto the circle centered in <i>(cx,cy,cz)</i>
   and contained in the x-y plane. The parameter <i>dist</i>
   specifies the length in meters of the draw action. \n
-  The reply <i>[ack]</i> is returned as soon as the draw is
-  accomplished.
-  -# <b>Slide</b>: <i>[slide] cx cy cz theta radius</i>. \n
-  The coordinates <i>(cx,cy,cz)</i> represent in meters the
-  position of the object's centroid to be pushed; <i>theta</i>,
-  given in degrees, and <i>radius</i>, specified in meters,
-  account for the point from which push the object, that is
-  located onto the circle centered in <i>(cx,cy,cz)</i> and
-  contained in the x-y plane. The action consist on a straight
-  and uniform slide from the point specified by the circle's
-  radius and theta angle to the opposite point of the circle,
-  accross the center point where the object is located.
-  -# <b>Virtual draw</b>: <i>[vdraw] cx cy cz theta radius
+  The reply <i>[ack] val</i> is returned at the end of the
+  simulation, where <i>val</i> accounts for the quality of the
+  action: the lower it is the better the action is.
+
+  -# <b>Virtual draw / pull</b>: <i>[vdra]/[vpul] cx cy cz theta radius
    dist</i>. \n Simulate the draw without performing any
    movement in order to test the quality of the action. \n
    The reply <i>[ack] val</i> is returned at the end of the
    simulation, where <i>val</i> accounts for the quality of the
    action: the lower it is the better the action is.
+
+  -# <b>Slide</b>: <i>[slide] cx cy cz theta radius</i>. \n
+  Perfoms a slide action accross the circle centered
+  at target object coordinates <i>(cx,cy,cz)</i>, in meters, from
+  the point defined by <i>theta</i>,in degrees, and <i>radius</i>,
+  in meters, to the diametral oppossite accross the cirlce,
+  contained in the x-y plane. The action consist on a straight
+  and uniform slide from the point specified by the circle's
+  radius and theta angle to the opposite point of the circle,
+  accross the center point where the object is located. The reply
+  <i>[ack] val</i> is returned at the end of the simulation,
+  where <i>val</i> accounts for the quality of the action: the lower
+  it is the better the action is.
+
+  -# <b>Virtual slide</b>: <i>[vsli] cx cy cz theta radius</i>. \n
+   Simulate the slide without performing any movement in order to
+   test the quality of the action. \n
+   The reply <i>[ack] val</i> is returned at the end of the
+   simulation, where <i>val</i> accounts for the quality of the
+   action: the lower it is the better the action is.
+
+  -# <b>Drag</b>: <i>[drag] cx cy cz theta radius</i>. \n
+  Perfoms a drag action from the object's position to the circle
+  of radius <i>radius</i> in the direction of angle <i>theta</i>.
+  Target object coordinates <i>(cx,cy,cz)</i> and <i>radius</i>
+  are in meters,while <i>theta</i> in degrees.The reply
+  <i>[ack] val</i> is returned at the end of the simulation,
+  where <i>val</i> accounts for the quality of the action: the lower
+  it is the better the action is.
+
+  -# <b>Virtual drag</b>: <i>[vdrg] cx cy cz theta radius</i>. \n
+   Simulate the drag without performing any movement in order to
+   test the quality of the action. \n
+   The reply <i>[ack] val</i> is returned at the end of the
+   simulation, where <i>val</i> accounts for the quality of the
+   action: the lower it is the better the action is.
+
   -# <b>Tool-attach</b>: <i>[tool] [attach] arm x y z</i>. \n
   Attach a tool to the given arm whose dimensions are specified
   in the frame attached to the hand. The subsequent action will
   make use of this tool.
+
   -# <b>Tool-get</b>: <i>[tool] [get]</i>. \n
   Retrieve tool information as <i>[ack] arm x y z</i>.
+
   -# <b>Tool-remove</b>: <i>[tool] [remove]</i>. \n
   Remove the attached tool.
+
   -# <b>Find</b>: <i>[find] arm eye</i>. \n
   An exploration is performed which aims at finding the tool
   dimension. It is possible to select the arm for executing the
@@ -162,6 +196,8 @@ protected:
     bool elbow_set;
     double elbow_height,elbow_weight;
 
+    double collisionThresh;
+
     BufferedPort<Bottle> visionPort;
     RpcClient            finderPort;
     RpcServer            rpcPort;
@@ -192,6 +228,8 @@ protected:
         int ack=Vocab::encode("ack");
         int nack=Vocab::encode("nack");
 
+        //bool ok;
+
         int cmd=command.get(0).asVocab();
         switch (cmd)
         {
@@ -211,15 +249,23 @@ protected:
                     theta=payload.get(3).asDouble();
                     radius=payload.get(4).asDouble();
 
-                    push(c,theta,radius,pushHand,toolFrame);
-                    reply.addVocab(ack);
+                    bool ok = push(c,theta,radius,pushHand,toolFrame);
+                    if (ok)
+                        reply.addVocab(ack);
+                    else
+                        reply.addVocab(nack);
+                }else {
+
+                    reply.addVocab(nack);
+                    reply.addString("Not enough amount of parameters for push action");
                 }
 
                 break;
             }
 
             //-----------------
-            case VOCAB4('p','u','l','l'):
+            case VOCAB4('v','d','r','g'):
+            case VOCAB4('d','r','a','g'):
             {
                 Bottle payload=command.tail();
                 if (payload.size()>=5)
@@ -234,8 +280,25 @@ protected:
                     theta=payload.get(3).asDouble();
                     radius=payload.get(4).asDouble();
 
-                    pull(c,theta,radius,pushHand,toolFrame);
-                    reply.addVocab(ack);
+                    double collision = drag(cmd==VOCAB4('v','d','r','g'), c, theta, radius, pushHand, toolFrame);
+                    if (collision < collisionThresh){
+                        reply.addVocab(ack);
+                        reply.addDouble(radius);
+                        reply.addDouble(collision);
+                    }
+                    else{
+                        reply.addVocab(nack);
+                        reply.addDouble(radius);
+                        reply.addDouble(collision);
+                    }
+
+
+                    if (cmd==VOCAB4('v','d','r','g'))
+                        reply.addDouble(collision);
+                }else {
+
+                    reply.addVocab(nack);
+                    reply.addString("Not enough amount of parameters for drag action");
                 }
 
                 break;
@@ -243,6 +306,7 @@ protected:
 
             //-----------------
             case VOCAB4('s','l','i','d'):
+            case VOCAB4('v','s','l','i'):
             {
                 Bottle payload=command.tail();
                 if (payload.size()>=5)
@@ -257,15 +321,33 @@ protected:
                     theta=payload.get(3).asDouble();
                     radius=payload.get(4).asDouble();
 
-                    slide(c,theta,radius,pushHand,toolFrame);
-                    reply.addVocab(ack);
+                    double collision = slide(cmd==VOCAB4('v','s','l','i'), c, theta, radius, pushHand, toolFrame);
+                    if (collision < collisionThresh){
+                        reply.addVocab(ack);
+                        reply.addDouble(radius);
+                        reply.addDouble(collision);
+                    }
+                    else{
+                        reply.addVocab(nack);
+                        reply.addDouble(radius);
+                        reply.addDouble(collision);
+                    }
+
+                    if (cmd==VOCAB4('v','s','l','i'))
+                        reply.addDouble(collision);
+                }else {
+
+                    reply.addVocab(nack);
+                    reply.addString("Not enough amount of parameters for slide action");
                 }
 
                 break;
             }
 
             //-----------------
-            case VOCAB4('d','r','a','w'):
+            case VOCAB4('p','u','l','l'):   //Call the action as 'pull'
+            case VOCAB4('v','p','u','l'):
+            case VOCAB4('d','r','a','w'):   // or 'draw'
             case VOCAB4('v','d','r','a'):
             {
                 Bottle payload=command.tail();
@@ -283,12 +365,25 @@ protected:
                     radius=payload.get(4).asDouble();
                     dist=payload.get(5).asDouble();
 
-                    double res=draw(cmd==VOCAB4('v','d','r','a'),c,theta,
-                                    radius,dist,pushHand,toolFrame);
+                    double collision = pull(cmd==VOCAB4('v','d','r','a'), c, theta, radius, dist, pushHand, toolFrame);
 
-                    reply.addVocab(ack);
+                    if (collision < collisionThresh){
+                        reply.addVocab(ack);
+                        reply.addDouble(dist);
+                        reply.addDouble(collision);
+                    }
+                    else{
+                        reply.addVocab(nack);
+                        reply.addDouble(dist);
+                        reply.addDouble(collision);
+                    }
+
                     if (cmd==VOCAB4('v','d','r','a'))
-                        reply.addDouble(res);
+                        reply.addDouble(collision);
+                } else {
+
+                    reply.addVocab(nack);
+                    reply.addString("Not enough amount of parameters for draw/pull action");
                 }
 
                 break;
@@ -365,6 +460,24 @@ protected:
                 break;
             }
 
+            case VOCAB4('h','e','l','p'):
+            {
+                reply.addVocab(Vocab::encode("many"));
+                reply.addString("Available commands are:");
+                reply.addString("push - [push] cx cy cz theta radius - The object is pushed from the point at angle theta (deg) on the circle of radius (in m), centered at objects coordinates (cx,cy,cz) and contained in the x-y plane.");
+                reply.addString("draw/pull - [draw]/[pull] cx cy cz theta radius dist - Pulls the object dist (in cm) from the point at angle theta (deg) on the circle of radius (in m), centered at objects coordinates (cx,cy,cz).");
+                reply.addString("virtual draw/pull - [vdra]/[vpul] cx cy cz theta radius dist - Simulates the draw without performing any movement in order to test the quality of the action.");
+                reply.addString("slide - [slid] cx cy cz theta radius - Performs a slide movement diametrically accross the circle or radius (in cm) centered at objects coordinates (cx,cy,cz) from point at angle theta.");
+                reply.addString("virtual slide - [vsli] cx cy cz theta radius - Simulates the slide without performing any movement in order to test the quality of the action.");
+                reply.addString("drag - [drag] cx cy cz theta radius - Perfoms a drag action from the object's position (cx,cy,cz) to the circle of radius in the direction of angle theta.");
+                reply.addString("virtual drag - [vdrg] cx cy cz theta radius - Simulates the slide without performing any movement in order to test the quality of the action.");
+                reply.addString("find - [find] arm eye - An exploration is performed which aims at finding the tool dimension.");
+                reply.addString("Tool-Attach - [tool] [attach] arm x y z ");
+                reply.addString("help - produces this help.");
+                reply.addVocab(ack);
+                break;
+            }
+
             //-----------------
             default:
                 interrupting=false;
@@ -398,7 +511,7 @@ protected:
     }
 
     /************************************************************************/
-    void push(const Vector &c, const double theta, const double radius,
+    bool push(const Vector &c, const double theta, const double radius,
               const string &armType="selectable", const Matrix &frame=eye(4,4))
     {
         // wrt root frame: frame centered at c with x-axis pointing rightward,
@@ -630,11 +743,12 @@ protected:
         
         iCartCtrl->restoreContext(context);
         iCartCtrl->deleteContext(context);
+        return true;
     }
 
     /************************************************************************/
-    double draw(bool simulation, const Vector &c, const double theta, const double radius,
-                const double dist, const string &armType, const Matrix &frame=eye(4,4))
+    double pull(bool simulation, const Vector &c, const double theta,const double radius,  double &distance,
+                const string &armType="selectable", const Matrix &frame=eye(4,4))
     {
         // c0 is the projection of c on the sagittal plane
         Vector c_sag=c;
@@ -642,128 +756,148 @@ protected:
 
         // wrt root frame: frame centered at c_sag with x-axis pointing rightward,
         // y-axis pointing forward and z-axis pointing upward
-        Matrix H0(4,4); H0.zero();
-        H0(1,0)=1.0;
-        H0(0,1)=-1.0;
-        H0(2,2)=1.0;
-        H0(0,3)=c_sag[0]; H0(1,3)=c_sag[1]; H0(2,3)=c_sag[2]; H0(3,3)=1.0;
+        Matrix H0(4,4);
 
-        double theta_rad=CTRL_DEG2RAD*theta;
-        double _c=cos(theta_rad);
-        double _s=sin(theta_rad);
+        Vector xd1;
+        Vector od1;
+        Vector xd2;
+        Vector od2;
 
-        // wrt H0 frame: frame translated in R*[_c,_s]
-        Matrix H1=eye(4,4);
-        H1(0,3)=radius*_c; H1(1,3)=radius*_s;
+        int context;
 
-        // wrt H1 frame: frame translated in [0,-dist]
-        Matrix H2=eye(4,4);
-        H2(1,3)=-dist;
-
-        // go back into root frame
-        H2=H0*H1*H2;
-        H1=H0*H1;
-
-        // apply final axes
-        Matrix R(3,3); R.zero();
-        R(0,0)=-1.0;
-        R(2,1)=-1.0;
-        R(1,2)=-1.0;
-
-        H1.setSubmatrix(R,0,0);
-        H2.setSubmatrix(R,0,0);
-
-        Vector xd1=H1.getCol(3).subVector(0,2);
-        Vector od1=dcm2axis(H1);
-
-        Vector xd2=H2.getCol(3).subVector(0,2);
-        Vector od2=dcm2axis(H2);
-
-        printf("identified locations on the sagittal plane...\n");
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-        printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-
-        // choose the arm
-        if (armType=="selectable")
+        double dist = distance + 0.02;
+        double res = 100.0;
+        while (res>collisionThresh)
         {
-            if (xd1[1]>=0.0)
-                iCartCtrl=iCartCtrlR;
-            else
-                iCartCtrl=iCartCtrlL;
-        }
-        else if (armType=="left")
-            iCartCtrl=iCartCtrlL;
-        else
-            iCartCtrl=iCartCtrlR;
+            // It is impossible to perform the action with invalid pull distance.
+            if (dist <0){
+                return res;
+            }else{
+                dist = dist - 0.02;
+            }
 
-        // recover the original place: do translation and rotation
-        if (c[1]!=0.0)
-        {
-            Vector r(4,0.0);
-            r[2]=-1.0;
-            r[3]=atan2(c[1],fabs(c[0]));
-            Matrix H=axis2dcm(r);
+            printf("\n Trying pull with pull distance =%g\n", dist);
 
-            H(0,3)=H1(0,3);
-            H(1,3)=H1(1,3)+c[1];
-            H(2,3)=H1(2,3);
-            H1(0,3)=H1(1,3)=H1(2,3)=0.0;
-            H1=H*H1;
+            // H0 reference frame of the target object
+            H0.zero();
+            H0(1,0)=1.0;
+            H0(0,1)=-1.0;
+            H0(2,2)=1.0;
+            H0(0,3)=c_sag[0]; H0(1,3)=c_sag[1]; H0(2,3)=c_sag[2]; H0(3,3)=1.0;
 
-            H(0,3)=H2(0,3);
-            H(1,3)=H2(1,3)+c[1];
-            H(2,3)=H2(2,3);
-            H2(0,3)=H2(1,3)=H2(2,3)=0.0;
-            H2=H*H2;
+            double theta_rad=CTRL_DEG2RAD*theta;
+            double _c=cos(theta_rad);
+            double _s=sin(theta_rad);
+
+            // start point at H1, point of circle centered of the object at radius R and agle theta.
+            // wrt H0 frame: frame translated in R*[_c,_s], keeping orientation
+            Matrix H1=eye(4,4);
+            H1(0,3)=radius*_c; H1(1,3)=radius*_s;
+
+            // end point at H2, -dist on Y axis from H1 frame.
+            // wrt H1 frame: frame translated in [0,-dist]:
+            Matrix H2=eye(4,4);
+            H2(1,3)=-dist;
+
+            // go back into root frame
+            H2=H0*H1*H2;
+            H1=H0*H1;
+
+            // apply final axes
+            Matrix R(3,3); R.zero();
+            R(0,0)=-1.0;
+            R(2,1)=-1.0;
+            R(1,2)=-1.0;
+
+            H1.setSubmatrix(R,0,0);
+            H2.setSubmatrix(R,0,0);
 
             xd1=H1.getCol(3).subVector(0,2);
             od1=dcm2axis(H1);
 
             xd2=H2.getCol(3).subVector(0,2);
             od2=dcm2axis(H2);
-        }
 
-        printf("in-place locations...\n");
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-        printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
+            printf("identified locations on the sagittal plane...\n");
+            printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
 
-        // apply tool (if any)
-        Matrix invFrame=SE3inv(frame);
-        H1=H1*invFrame;
-        H2=H2*invFrame;
+            // choose the arm
+            if (armType=="selectable")
+            {
+                if (xd1[1]>=0.0)
+                    iCartCtrl=iCartCtrlR;
+                else
+                    iCartCtrl=iCartCtrlL;
+            }
+            else if (armType=="left")
+                iCartCtrl=iCartCtrlL;
+            else
+                iCartCtrl=iCartCtrlR;
 
-        xd1=H1.getCol(3).subVector(0,2);
-        od1=dcm2axis(H1);
+            // recover the original place: do translation and rotation
+            if (c[1]!=0.0)
+            {
+                Vector r(4,0.0);
+                r[2]=-1.0;
+                r[3]=atan2(c[1],fabs(c[0]));
+                Matrix H=axis2dcm(r);
 
-        xd2=H2.getCol(3).subVector(0,2);
-        od2=dcm2axis(H2);
+                H(0,3)=H1(0,3);
+                H(1,3)=H1(1,3)+c[1];
+                H(2,3)=H1(2,3);
+                H1(0,3)=H1(1,3)=H1(2,3)=0.0;
+                H1=H*H1;
 
-        printf("apply tool (if any)...\n");
-        printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-        printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
+                H(0,3)=H2(0,3);
+                H(1,3)=H2(1,3)+c[1];
+                H(2,3)=H2(2,3);
+                H2(0,3)=H2(1,3)=H2(2,3)=0.0;
+                H2=H*H2;
 
-        // deal with the arm context
-        int context;
-        iCartCtrl->storeContext(&context);
+                xd1=H1.getCol(3).subVector(0,2);
+                od1=dcm2axis(H1);
 
-        Bottle options;
-        Bottle &straightOpt=options.addList();
-        straightOpt.addString("straightness");
-        straightOpt.addDouble(30.0);
-        iCartCtrl->tweakSet(options);
-        changeElbowHeight();
+                xd2=H2.getCol(3).subVector(0,2);
+                od2=dcm2axis(H2);
+            }
 
-        Vector dof;
-        iCartCtrl->getDOF(dof);
+            printf("in-place locations...\n");
+            printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
 
-        dof=1.0; dof[1]=0.0;
-        iCartCtrl->setDOF(dof,dof);
+            // apply tool (if any)
+            Matrix invFrame=SE3inv(frame);
+            H1=H1*invFrame;
+            H2=H2*invFrame;
 
-        double res=0.0;
+            xd1=H1.getCol(3).subVector(0,2);
+            od1=dcm2axis(H1);
 
-        // simulate the movements
-        if (simulation)
-        {
+            xd2=H2.getCol(3).subVector(0,2);
+            od2=dcm2axis(H2);
+
+            printf("apply tool (if any)...\n");
+            printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
+
+            // deal with the arm context
+            iCartCtrl->storeContext(&context);
+
+            Bottle options;
+            Bottle &straightOpt=options.addList();
+            straightOpt.addString("straightness");
+            straightOpt.addDouble(30.0);
+            iCartCtrl->tweakSet(options);
+            changeElbowHeight();
+
+            Vector dof;
+            iCartCtrl->getDOF(dof);
+
+            dof=1.0; dof[1]=0.0;
+            iCartCtrl->setDOF(dof,dof);
+
+            // simulate the movements
             Vector xdhat1,odhat1,xdhat2,odhat2,qdhat;
             iCartCtrl->askForPose(xd1,od1,xdhat1,odhat1,qdhat);
             iCartCtrl->askForPose(qdhat,xd2,od2,xdhat2,odhat2,qdhat);
@@ -786,33 +920,48 @@ protected:
             printf("nearness penalty=%g\n",nearness_penalty);
             res=e_x1+e_o1+e_x2+e_o2+nearness_penalty;
             printf("final quality=%g\n",res);
+
+            // Check escape conditions:
+            // Only an action simulation desired
+            if (simulation){
+                return res;
+            }
         }
-        // execute the movements
-        else
-        {
-            Vector offs(3,0.0); offs[2]=0.06;
-            if (!interrupting)
-            {
-                Vector x=xd1+offs;
 
-                printf("moving to: x=(%s); o=(%s)\n",x.toString(3,3).c_str(),od1.toString(3,3).c_str());
-                iCartCtrl->goToPoseSync(x,od1,2.0);
-                iCartCtrl->waitMotionDone(0.1,5.0);
-            }
+        // If not an action simulation and a valid distance has been found:
+        // execute the movements    
+        Vector offs(3,0.0); offs[2]=0.06;   // Offset 6 cm on Y axis (on top of the xd1 location)
+        distance = dist;
 
-            if (!interrupting)
-            {
-                printf("moving to: x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-                iCartCtrl->goToPoseSync(xd1,od1,1.5);
-                iCartCtrl->waitMotionDone(0.1,5.0);
-            }
+        if (!interrupting)
+        {   // First action component: place the tool over the starting point
+            Vector x=xd1+offs;
 
-            if (!interrupting)
-            {
-                printf("moving to: x=(%s); o=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-                iCartCtrl->goToPoseSync(xd2,od2,3.5);
-                iCartCtrl->waitMotionDone(0.1,5.0);
-            }
+            printf("moving to: x=(%s); o=(%s)\n",x.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(x,od1,2.0);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+        }
+
+        if (!interrupting)
+        {   // Second action component: lower the tool to meet the object
+            printf("moving to: x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xd1,od1,1.5);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+        }
+
+        if (!interrupting)
+        {   // Third action component: perform the pull from the original point to the end point
+            printf("moving to: x=(%s); o=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xd2,od2,3.5);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+        }
+        if (!interrupting)
+        {   // Fourth and final action component: lift the tool to release the object
+            Vector x=xd2+offs;
+
+            printf("moving to: x=(%s); o=(%s)\n",x.toString(3,3).c_str(),od2.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(x,od2,2.0);
+            iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         iCartCtrl->restoreContext(context);
@@ -821,9 +970,9 @@ protected:
         return res;
     }
 
-    /************************************************************************/
-    void pull(const Vector &c, const double theta, const double radius,
-              const string &armType="selectable", const Matrix &frame=eye(4,4))
+    /************************************************************************/    
+    double drag(bool simulation, const Vector &c, const double theta, double &radius,
+                const string &armType = "selectable", const Matrix &frame=eye(4,4))
     {
         // c0 is the projection of c on the sagittal plane
         Vector c_sag=c;
@@ -840,10 +989,17 @@ protected:
 
         int context;
 
-        double rad = radius;
+        double rad = radius + 0.02;
         double res = 100.0;
-        while (res>3.0)
+        while (res>collisionThresh)
         {
+            // It is impossible to perform the action with invalid radius.
+            if (rad <0){
+                return res;
+            }else{
+                rad = rad - 0.02;
+            }
+
             printf("\n Trying action with radius =%g\n",rad);
 
             // wrt root frame: frame centered at c_sag with x-axis pointing rightward,
@@ -856,12 +1012,12 @@ protected:
             H0(2,2)=1.0;
             H0(0,3)=c_sag[0]; H0(1,3)=c_sag[1]; H0(2,3)=c_sag[2]; H0(3,3)=1.0;
 
-
             double theta_rad=CTRL_DEG2RAD*theta;
             double _c=cos(theta_rad);
             double _s=sin(theta_rad);
 
-            // end at point wrt H0 frame translated in R*[_c,_s], keeping orientation
+            // end point at H1, point of circle centered of the object at radius R and agle theta.
+            // wrt H0 frame translated in R*[_c,_s], keeping orientation
             Matrix H1=eye(4,4);
             H1(0,3)=rad*_c; H1(1,3)=rad*_s;
 
@@ -908,6 +1064,7 @@ protected:
                 r[3]=atan2(c[1],fabs(c[0]));
                 Matrix H=axis2dcm(r);
 
+                // Add translation for tables height.
                 H(0,3)=H0(0,3);
                 H(1,3)=H0(1,3)+c[1];
                 H(2,3)=H0(2,3);
@@ -946,7 +1103,7 @@ protected:
             printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
             printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
 
-            // deal with the arm context
+            // deal with the arm context            
             iCartCtrl->storeContext(&context);
 
             Bottle options;
@@ -986,58 +1143,61 @@ protected:
             printf("nearness penalty=%g\n",nearness_penalty);
             res=e_x0+e_o0+e_x1+e_o1+nearness_penalty;
             printf("final quality=%g\n",res);
-            rad = rad - 0.02;
+
+            // Check escape conditions:
+            // Only an action simulation desired
+            if (simulation){
+                return res;
+            }
         }
 
+        // If not an action simulation and a valid radius has been found:
         // execute the movements
         Vector offs(3,0.0); offs[2]=0.06;
+        radius = rad;
+
         if (!interrupting)
-        {
+        {   // First action component: place the tool over the object
             Vector xA=xd0+offs;
 
             printf("moving to: x=(%s); o=(%s)\n",xA.toString(3,3).c_str(),od0.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xA,od0,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 1 done\n");
-            Time::delay(1);
         }
 
         if (!interrupting)
-        {
-            printf("moving to: x=(%s); o=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xd0,od0,1.5);
+        {   // Second action component: lower the tool to meet the object
+            Vector xB=xd0 - offs/3;
+            printf("moving to: x=(%s); o=(%s)\n",xB.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xB,od0,1.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 2 done\n");
-            Time::delay(1);
         }
 
         if (!interrupting)
-        {
-            printf("moving to: x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xd1,od1,3.5);
+        {   // Third action component: slide the tool to the desired position
+            Vector xC=xd1 - offs/3;
+            printf("moving to: x=(%s); o=(%s)\n",xC.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xC,od1,3.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 3 done\n");
-            Time::delay(1);
         }
 
         if (!interrupting)
-        {
-            Vector xB=xd1+offs;
+        {   // Fourth and final action component: lift the tool to release the object
+            Vector xD=xd1+offs;
 
-            printf("moving to: x=(%s); o=(%s)\n",xB.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xB,od1,2.0);
+            printf("moving to: x=(%s); o=(%s)\n",xD.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xD,od1,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 4 done\n");
-            Time::delay(1);
         }
 
         iCartCtrl->restoreContext(context);
         iCartCtrl->deleteContext(context);
 
-        return;
+        return res;
     }
+
     /************************************************************************/
-    void slide(const Vector &c, const double theta, const double radius,
+    double slide(bool simulation, const Vector &c, const double theta, double &radius,
                  const string &armType="selectable", const Matrix &frame=eye(4,4))
     {
         // c0 is the projection of c on the sagittal plane
@@ -1053,10 +1213,16 @@ protected:
 
         int context;
 
-        double rad = radius;
+        double rad = radius + 0.02;
         double res = 100.0;
-        while (res>3.0)
+        while (res>collisionThresh)
         {
+            // It is impossible to perform the action with invalid radius.
+            if (rad <0){
+                return res;
+            }else{
+                rad = rad - 0.02;
+            }
             printf("\n Trying action with radius =%g\n",rad);
 
             // wrt root frame: frame centered at c_sag with x-axis pointing rightward,
@@ -1199,63 +1365,51 @@ protected:
             double nearness_penalty=((norm(xdhatStart)<0.15)||(norm(xdhatEnd)<0.15)?10.0:0.0);
             printf("nearness penalty=%g\n",nearness_penalty);
             res = e_xStart + e_oStart + e_xEnd + e_oEnd + nearness_penalty;
-            printf("final quality=%g\n",res);
-            rad = rad - 0.02;
+            printf("final quality=%g\n",res);            
+            // Check escape conditions:
+            // Only an action simulation desired
+            if (simulation){
+                return res;
+            }
         }
 
         // execute the movements
         cout << "Starting slide Execution" << endl;
         Vector offs(3,0.0); offs[2]=0.06;
+        radius = rad;
 
         if (!interrupting)
-        {
-            cout << "Approach" << endl;
-            Vector xA=xdstart-offs/2;
+        {   // First action component: place the tool at angle theta on the circle centered on the object and radius R
+            Vector xA = xdstart-offs/3;
 
             printf("moving to: x=(%s); o=(%s)\n",xA.toString(3,3).c_str(),odstart.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xA,odstart,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 1 done\n");
-            Time::delay(1);
         }
-    /*
-        if (!interrupting)
-        {
-            cout << "Fine Grab " << endl;
 
-            printf("moving to: x=(%s); o=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xdstart,odstart,1.5);
-            iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 2 done\n");
-            Time::delay(1);
-        }
-*/
         if (!interrupting)
-        {
-            Vector xB=xdend - offs/2;
+        {   // Second action component: slide the tool to the oppoiste side of the circle through the center, were the object is
+            Vector xB=xdend - offs/3;
+
             printf("moving to: x=(%s); o=(%s)\n",xB.toString(3,3).c_str(),odend.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xB,odend,3.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 3 done\n");
-            Time::delay(1);
         }
 
         if (!interrupting)
-        {
+        {   // Third and final action component: lift the tool to release the object
             Vector xC=xdend+offs;
 
             printf("moving to: x=(%s); o=(%s)\n",xC.toString(3,3).c_str(),odend.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xC,odend,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
-            printf("movement 4 done\n");
-            Time::delay(1);
         }
 
 
         iCartCtrl->restoreContext(context);
         iCartCtrl->deleteContext(context);
 
-        return;
+        return res;
     }
 
     /************************************************************************/
@@ -1596,6 +1750,8 @@ public:
 
         pushHand="selectable";
         toolFrame=eye(4,4);
+
+        collisionThresh = 3.0;
 
         return true;
     }
