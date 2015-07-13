@@ -29,7 +29,6 @@ It also enable the tool exploration.
  
 \section lib_sec Libraries 
 - YARP libraries. 
-- icubmod library.
 
 \section parameters_sec Parameters 
 --robot \e robot
@@ -159,8 +158,6 @@ Windows, Linux
 #include <yarp/math/Math.h>
 
 #include <iCub/ctrl/math.h>
-
-YARP_DECLARE_DEVICES(icubmod)
 
 using namespace std;
 using namespace yarp::os;
@@ -1469,7 +1466,7 @@ protected:
             iCartCtrl->waitMotionDone(0.1);
         }
 
-        iGaze->setSaccadesStatus(false);
+        iGaze->setSaccadesMode(false);
         iGaze->setNeckTrajTime(2.5);
         iGaze->setEyesTrajTime(1.5);
 
@@ -1816,8 +1813,6 @@ int main(int argc, char *argv[])
         printf("YARP server not available!\n");
         return -1;
     }
-
-    YARP_REGISTER_DEVICES(icubmod)
 
     ResourceFinder rf;
     rf.setVerbose(true);
