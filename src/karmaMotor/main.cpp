@@ -1163,25 +1163,22 @@ protected:
         }
 
         if (!interrupting)
-        {   // Second action component: lower the tool to meet the object
-            Vector xB=xd0 - offs/3;
-            printf("moving to: x=(%s); o=(%s)\n",xB.toString(3,3).c_str(),od0.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xB,od0,1.5);
+        {   // Second action component: lower the tool to meet the object            
+            printf("moving to: x=(%s); o=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xd0,od0,1.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         if (!interrupting)
         {   // Third action component: slide the tool to the desired position
-            Vector xC=xd1 - offs/3;
-            printf("moving to: x=(%s); o=(%s)\n",xC.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xC,od1,3.5);
+            printf("moving to: x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xd1,od1,3.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         if (!interrupting)
         {   // Fourth and final action component: lift the tool to release the object
             Vector xD=xd1+offs;
-
             printf("moving to: x=(%s); o=(%s)\n",xD.toString(3,3).c_str(),od1.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xD,od1,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
@@ -1377,31 +1374,25 @@ protected:
 
         if (!interrupting)
         {   // First action component: place the tool at angle theta on the circle centered on the object and radius R
-            Vector xA = xdstart-offs/3;
-
-            printf("moving to: x=(%s); o=(%s)\n",xA.toString(3,3).c_str(),odstart.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xA,odstart,2.0);
+            printf("moving to: x=(%s); o=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xdstart,odstart,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         if (!interrupting)
         {   // Second action component: slide the tool to the oppoiste side of the circle through the center, were the object is
-            Vector xB=xdend - offs/3;
-
-            printf("moving to: x=(%s); o=(%s)\n",xB.toString(3,3).c_str(),odend.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xB,odend,3.5);
+            printf("moving to: x=(%s); o=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xdend,odend,3.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         if (!interrupting)
         {   // Third and final action component: lift the tool to release the object
             Vector xC=xdend+offs;
-
             printf("moving to: x=(%s); o=(%s)\n",xC.toString(3,3).c_str(),odend.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xC,odend,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
-
 
         iCartCtrl->restoreContext(context);
         iCartCtrl->deleteContext(context);
