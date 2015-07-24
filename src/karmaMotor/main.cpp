@@ -1653,7 +1653,9 @@ public:
     {
         string name=rf.check("name",Value("karmaMotor")).asString().c_str();
         string robot=rf.check("robot",Value("icub")).asString().c_str();
+        collisionThresh = rf.check("colThr",Value(0.0)).asDouble();
         elbow_set=rf.check("elbow_set");
+
         if (elbow_set)
         {
             if (Bottle *pB=rf.find("elbow_set").asList())
@@ -1739,8 +1741,6 @@ public:
         pushHand="selectable";
         toolFrame=eye(4,4);
 
-        collisionThresh = 3.0;
-
         return true;
     }
 
@@ -1812,6 +1812,7 @@ int main(int argc, char *argv[])
     KarmaMotor karmaMotor;
     return karmaMotor.runModule(rf);
 }
+
 
 
 
