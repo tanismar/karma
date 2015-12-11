@@ -409,6 +409,22 @@ protected:
             }
 
             //-----------------
+            case VOCAB4('c','o','l','T'):
+            {
+                Bottle payload=command.tail();
+                
+                double cT =  payload.get(0).asDouble();
+                if (cT<3){
+
+                    collisionThresh =cT;
+                    reply.addVocab(ack);
+                }else{
+                    reply.addVocab(nack);
+                }
+                break;
+            }
+
+            //-----------------
             case VOCAB4('t','o','o','l'):
             {
                 if (command.size()>1)
@@ -470,6 +486,7 @@ protected:
                 reply.addString("virtual drag - [vdrg] cx cy cz theta radius - Simulates the slide without performing any movement in order to test the quality of the action.");
                 reply.addString("find - [find] arm eye - An exploration is performed which aims at finding the tool dimension.");
                 reply.addString("Tool-Attach - [tool] [attach] arm x y z ");
+                reply.addString("collision Thresh- [colT] (double) cT ");
                 reply.addString("help - produces this help.");
                 reply.addVocab(ack);
                 break;
