@@ -270,14 +270,16 @@ protected:
                     Vector c(3);
                     double theta;
                     double radius;
+                    double handTilt;
 
                     c[0]=payload.get(0).asDouble();
                     c[1]=payload.get(1).asDouble();
                     c[2]=payload.get(2).asDouble();
                     theta=payload.get(3).asDouble();
                     radius=payload.get(4).asDouble();
+                    handTilt=payload.get(5).asDouble();
 
-                    double collision = drag(cmd==VOCAB4('v','d','r','g'), c, theta, radius, pushHand, toolFrame);
+                    double collision = drag(cmd==VOCAB4('v','d','r','g'), c, theta, radius, handTilt, pushHand, toolFrame);
                     if (collision < collisionThresh){
                         reply.addVocab(ack);
                         reply.addDouble(radius);
@@ -985,7 +987,7 @@ protected:
     }
 
     /************************************************************************/    
-    double drag(bool simulation, const Vector &c, const double theta, double &radius,
+    double drag(bool simulation, const Vector &c, const double theta, double &radius, const double handtilt,
                 const string &armType = "selectable", const Matrix &frame=eye(4,4))
     {
         // c0 is the projection of c on the sagittal plane
@@ -1030,7 +1032,7 @@ protected:
             double _c=cos(theta_rad);
             double _s=sin(theta_rad);
 
-            // end point at H1, point of circle centered of the object at radius R and agle theta.
+            // end point at H1, point of circle centered of the object at radius R and angle theta.
             // wrt H0 frame translated in R*[_c,_s], keeping orientation
             Matrix H1=eye(4,4);
             H1(0,3)=rad*_c; H1(1,3)=rad*_s;
@@ -1093,9 +1095,9 @@ protected:
 
                 xd0=H0.getCol(3).subVector(0,2);
                 od0=dcm2axis(H0);
-
                 xd1=H1.getCol(3).subVector(0,2);
                 od1=dcm2axis(H1);
+
             }
 
             printf("in-place locations...\n");
@@ -1107,10 +1109,21 @@ protected:
             H0=H0*invFrame;
             H1=H1*invFrame;
 
+
+            // Add an extra hand rotation so that the tool is no on upward angle from the hand
             xd0=H0.getCol(3).subVector(0,2);
+            xd1=H1.getCol(3).subVector(0,2);
+
+            Vector handRot0(4);
+            handRot0[0] = 0.0; handRot0[1] = 1.0; handRot0[2] = 0.0; handRot0[3] = handtilt*M_PI/180.0; //Tilt hand 'handtilt' extra degrees
+            Matrix R0 = axis2dcm(handRot0);
+            H0 = R0*H0;
             od0=dcm2axis(H0);
 
-            xd1=H1.getCol(3).subVector(0,2);
+            Vector handRot1(4);
+            handRot1[0] = 0.0; handRot1[1] = 1.0; handRot1[2] = 0.0; handRot1[3] = (handtilt+10)*M_PI/180.0; //Tilt hand 'handtilt' extra degrees
+            Matrix R1 = axis2dcm(handRot1);
+            H1 = R1*H1;
             od1=dcm2axis(H1);
 
             printf("apply tool (if any)...\n");
@@ -1670,7 +1683,7 @@ public:
     {
         string name=rf.check("name",Value("karmaMotor")).asString().c_str();
         string robot=rf.check("robot",Value("icub")).asString().c_str();
-        collisionThresh = rf.check("colThr",Value(0.0)).asDouble();
+        collisionThresh = rf.check("colThr",Value(2.5)).asDouble();
         elbow_set=rf.check("elbow_set");
 
         if (elbow_set)
