@@ -416,7 +416,7 @@ protected:
                 Bottle payload=command.tail();
                 
                 double cT =  payload.get(0).asDouble();
-                if (cT<3){
+                if (cT<=3){
 
                     collisionThresh =cT;
                     reply.addVocab(ack);
