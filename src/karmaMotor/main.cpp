@@ -440,16 +440,20 @@ protected:
                         {
                             pushHand=payload.get(0).asString().c_str();
 
+                            // Get the tool end effector coordinates w.r.t hand reference frame (RF)
                             Vector point(4);
                             point[0]=payload.get(1).asDouble();
                             point[1]=payload.get(2).asDouble();
                             point[2]=payload.get(3).asDouble();
                             point[3]=1.0;
 
+
                             Vector r(4,0.0);
-                            r[2]=-1.0;
-                            r[3]=atan2(-point[1],point[0]);
-                            toolFrame=axis2dcm(r);
+                            // Set tool RF orientation so it goes along the tool long axis (assuming tool is held along Z plane
+                            r[2]=-1.0;                          // Rotate around axis -Z (plane parallel to hand) ...
+                            r[3]=atan2(-point[1],point[0]);     // ... along the -Y,X line from hand to tooltip points.
+                            toolFrame=axis2dcm(r);                            
+                            // Set tool RF to tooltip coordinates by adding translation
                             toolFrame.setCol(3,point);
 
                             reply.addVocab(ack);
@@ -467,6 +471,8 @@ protected:
                     {
                         pushHand="selectable";
                         toolFrame=eye(4,4);
+                        iCartCtrlL->removeTipFrame();
+                        iCartCtrlR->removeTipFrame();
 
                         reply.addVocab(ack);
                     }
@@ -528,8 +534,9 @@ protected:
 
     /************************************************************************/
     bool push(const Vector &c, const double theta, const double radius,
-              const string &armType="selectable", const Matrix &frame=eye(4,4))
+              const string &armType="selectable", const Matrix &tipFrame=eye(4,4))
     {
+
         // wrt root frame: frame centered at c with x-axis pointing rightward,
         // y-axis pointing forward and z-axis pointing upward
         Matrix H0(4,4); H0.zero();
@@ -565,12 +572,11 @@ protected:
         H1eps(0,3)+=epsilon*_c; H1eps(1,3)+=epsilon*_s;
         H2eps(0,3)+=epsilon*_c; H2eps(1,3)+=epsilon*_s;
         
-        // go back into root frame and apply tool (if any)
-        Matrix invFrame=SE3inv(frame);
-        H1=H0*H1*invFrame;
-        H2=H0*H2*invFrame;
-        H1eps=H0*H1eps*invFrame;
-        H2eps=H0*H2eps*invFrame;
+        // go back into root frame
+        H1=H0*H1;
+        H2=H0*H2;
+        H1eps=H0*H1eps;
+        H2eps=H0*H2eps;
         
         Vector xd1=H1.getCol(3).subVector(0,2);
         Vector od1=dcm2axis(H1);
@@ -604,6 +610,12 @@ protected:
         // deal with the arm context
         int context;
         iCartCtrl->storeContext(&context);
+
+
+        // Transform the end-effector to the tip of the tool (if any).
+        Vector tip_x = tipFrame.getCol(3).subVector(0,2);
+        Vector tip_o = yarp::math::dcm2axis(tipFrame);
+        iCartCtrl->attachTipFrame(tip_x,tip_o);                // establish the new controlled frame
 
         Bottle options;
         Bottle &straightOpt=options.addList();
@@ -742,12 +754,12 @@ protected:
             Matrix H=axis2dcm(*od);
             Vector center=c; center.push_back(1.0);
             H.setCol(3,center);
-            Vector x=-1.0*frame.getCol(3); x[3]=1.0;
-            x=H*x; x.pop_back();
+            //Vector x=-1.0*frame.getCol(3); x[3]=1.0; // Revert tool translation.
+            //x=H*x; x.pop_back();
 
-            printf("moving to: x=(%s); o=(%s)\n",x.toString(3,3).c_str(),od->toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(x,*od,trajTime);
-            iCartCtrl->waitMotionDone(0.1,3.0);
+            //printf("moving to: x=(%s); o=(%s)\n",x.toString(3,3).c_str(),od->toString(3,3).c_str());
+            //iCartCtrl->goToPoseSync(x,*od,trajTime);
+            //iCartCtrl->waitMotionDone(0.1,3.0);
         }
 
         if (!interrupting)
@@ -755,7 +767,12 @@ protected:
             printf("moving to: x=(%s); o=(%s)\n",xd->toString(3,3).c_str(),od->toString(3,3).c_str());
             iCartCtrl->goToPoseSync(*xd,*od,1.0);
             iCartCtrl->waitMotionDone(0.1,2.0);
+            iCartCtrl->removeTipFrame();
         }
+
+        iCartCtrl->removeTipFrame();            // to restore the center of the palm as actual end-effector for other uses (such as go Home)
+
+
         
         iCartCtrl->restoreContext(context);
         iCartCtrl->deleteContext(context);
@@ -764,7 +781,7 @@ protected:
 
     /************************************************************************/
     double pull(bool simulation, const Vector &c, const double theta,const double radius,  double &distance,
-                const string &armType="selectable", const Matrix &frame=eye(4,4))
+                const string &armType="selectable", const Matrix &tipFrame=eye(4,4))
     {
         // c0 is the projection of c on the sagittal plane
         Vector c_sag=c;
@@ -882,23 +899,13 @@ protected:
             printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
             printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
 
-            // apply tool (if any)
-            Matrix invFrame=SE3inv(frame);
-            H1=H1*invFrame;
-            H2=H2*invFrame;
-
-            xd1=H1.getCol(3).subVector(0,2);
-            od1=dcm2axis(H1);
-
-            xd2=H2.getCol(3).subVector(0,2);
-            od2=dcm2axis(H2);
-
-            printf("apply tool (if any)...\n");
-            printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            printf("xd2=(%s) od2=(%s)\n",xd2.toString(3,3).c_str(),od2.toString(3,3).c_str());
-
             // deal with the arm context
             iCartCtrl->storeContext(&context);
+
+            // Transform the end-effector to the tip of the tool (if any).
+            Vector tip_x=tipFrame.getCol(3).subVector(0,2);
+            Vector tip_o=yarp::math::dcm2axis(tipFrame);
+            iCartCtrl->attachTipFrame(tip_x,tip_o);                // establish the new controlled frame
 
             Bottle options;
             Bottle &straightOpt=options.addList();
@@ -936,6 +943,9 @@ protected:
             printf("nearness penalty=%g\n",nearness_penalty);
             res=e_x1+e_o1+e_x2+e_o2+nearness_penalty;
             printf("final quality=%g\n",res);
+
+            if ((res>collisionThresh)) {           // If scape condition not met, remove tipFrame to avoid accumulation
+                iCartCtrl->removeTipFrame(); }     // to restore the center of the palm as actual end-effector for other uses (such as go Home)
 
             // Check escape conditions:
             // Only an action simulation desired
@@ -980,6 +990,10 @@ protected:
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
+
+        iCartCtrl->removeTipFrame();            // to restore the center of the palm as actual end-effector for other uses (such as go Home)
+
+
         iCartCtrl->restoreContext(context);
         iCartCtrl->deleteContext(context);
 
@@ -988,7 +1002,7 @@ protected:
 
     /************************************************************************/    
     double drag(bool simulation, const Vector &c, const double theta, double &radius, const double handtilt,
-                const string &armType = "selectable", const Matrix &frame=eye(4,4))
+                const string &armType = "selectable", const Matrix &tipFrame=eye(4,4))
     {
         // c0 is the projection of c on the sagittal plane
         Vector c_sag=c;
@@ -1104,12 +1118,6 @@ protected:
             printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
             printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
 
-            // apply tool (if any)
-            Matrix invFrame=SE3inv(frame);
-            H0=H0*invFrame;
-            H1=H1*invFrame;
-
-
             // Add an extra hand rotation so that the tool is no on upward angle from the hand
             xd0=H0.getCol(3).subVector(0,2);
             xd1=H1.getCol(3).subVector(0,2);
@@ -1126,12 +1134,17 @@ protected:
             H1 = R1*H1;
             od1=dcm2axis(H1);
 
-            printf("apply tool (if any)...\n");
+            printf("apply tilt (if any)...\n");
             printf("xd0=(%s) od0=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
             printf("xd1=(%s) od1=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
 
             // deal with the arm context            
             iCartCtrl->storeContext(&context);
+
+            // Transform the end-effector to the tip of the tool (if any).
+            Vector tip_x=tipFrame.getCol(3).subVector(0,2);
+            Vector tip_o=yarp::math::dcm2axis(tipFrame);
+            iCartCtrl->attachTipFrame(tip_x,tip_o);                // establish the new controlled frame
 
             Bottle options;
             Bottle &straightOpt=options.addList();
@@ -1171,6 +1184,9 @@ protected:
             res=e_x0+e_o0+e_x1+e_o1+nearness_penalty;
             printf("final quality=%g\n",res);
 
+            if ((res>collisionThresh)) {           // If scape condition not met, remove tipFrame to avoid accumulation
+                iCartCtrl->removeTipFrame(); }     // to restore the center of the palm as actual end-effector for other uses (such as go Home)
+
             // Check escape conditions:
             // Only an action simulation desired
             if (simulation){
@@ -1187,32 +1203,43 @@ protected:
         {   // First action component: place the tool over the object
             Vector xA=xd0+offs;
 
-            printf("moving to: x=(%s); o=(%s)\n",xA.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            printf("approach obj to :  x=(%s); o=(%s)\n",xA.toString(3,3).c_str(),od0.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xA,od0,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         if (!interrupting)
         {   // Second action component: lower the tool to meet the object            
-            printf("moving to: x=(%s); o=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
+            printf("moving to object: x=(%s); o=(%s)\n",xd0.toString(3,3).c_str(),od0.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xd0,od0,1.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         if (!interrupting)
-        {   // Third action component: slide the tool to the desired position
-            printf("moving to: x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xd1,od1,3.5);
+        {   // Third action component: waypoint 1 at mid to enforce straighness
+            Vector xW1 = (xd0+xd1)/2;
+            Vector oW1 = od0;
+            printf("waypoint at     : x=(%s); o=(%s)\n",xW1.toString(3,3).c_str(),oW1.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xW1,oW1,1.0);
+            iCartCtrl->waitMotionDone(0.1,3.0);
+        }
+
+        if (!interrupting)
+        {   // Fourth action component: drag the tool to the desired position
+            printf("dragging to     : x=(%s); o=(%s)\n",xd1.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xd1,od1,1.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         if (!interrupting)
-        {   // Fourth and final action component: lift the tool to release the object
+        {   // Fifth and final action component: lift the tool to release the object
             Vector xD=xd1+offs;
-            printf("moving to: x=(%s); o=(%s)\n",xD.toString(3,3).c_str(),od1.toString(3,3).c_str());
+            printf("Releasing object: x=(%s); o=(%s)\n",xD.toString(3,3).c_str(),od1.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xD,od1,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
+
+        iCartCtrl->removeTipFrame();            // to restore the center of the palm as actual end-effector for other uses (such as go Home)
 
         iCartCtrl->restoreContext(context);
         iCartCtrl->deleteContext(context);
@@ -1222,7 +1249,7 @@ protected:
 
     /************************************************************************/
     double slide(bool simulation, const Vector &c, const double theta, double &radius,
-                 const string &armType="selectable", const Matrix &frame=eye(4,4))
+                 const string &armType="selectable", const Matrix &tipFrame=eye(4,4))
     {
         // c0 is the projection of c on the sagittal plane
         Vector c_sag=c;
@@ -1336,23 +1363,14 @@ protected:
             printf("xdstart=(%s) odstart=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
             printf("xdend=(%s) odend=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
 
-            // apply tool (if any)
-            Matrix invFrame=SE3inv(frame);
-            Hstart=Hstart*invFrame;
-            Hend=Hend*invFrame;
-
-            xdstart=Hstart.getCol(3).subVector(0,2);
-            odstart=dcm2axis(Hstart);
-
-            xdend=Hend.getCol(3).subVector(0,2);
-            odend=dcm2axis(Hend);
-
-            printf("apply tool (if any)...\n");
-            printf("xdstart=(%s) odstart=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
-            printf("xdend=(%s) odend=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
-
             // deal with the arm context
             iCartCtrl->storeContext(&context);
+
+
+            // Transform the end-effector to the tip of the tool (if any).
+            Vector tip_x=tipFrame.getCol(3).subVector(0,2);
+            Vector tip_o=yarp::math::dcm2axis(tipFrame);
+            iCartCtrl->attachTipFrame(tip_x,tip_o);                // establish the new controlled frame
 
             Bottle options;
             Bottle &straightOpt=options.addList();
@@ -1390,6 +1408,10 @@ protected:
             printf("nearness penalty=%g\n",nearness_penalty);
             res = e_xStart + e_oStart + e_xEnd + e_oEnd + nearness_penalty;
             printf("final quality=%g\n",res);            
+
+            if ((res>collisionThresh)) {           // If scape condition not met, remove tipFrame to avoid accumulation
+                iCartCtrl->removeTipFrame(); }     // to restore the center of the palm as actual end-effector for other uses (such as go Home)
+
             // Check escape conditions:
             // Only an action simulation desired
             if (simulation){
@@ -1404,15 +1426,23 @@ protected:
 
         if (!interrupting)
         {   // First action component: place the tool at angle theta on the circle centered on the object and radius R
-            printf("moving to: x=(%s); o=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
+            printf("Positioning at: x=(%s); o=(%s)\n",xdstart.toString(3,3).c_str(),odstart.toString(3,3).c_str());
             iCartCtrl->goToPoseSync(xdstart,odstart,2.0);
+            iCartCtrl->waitMotionDone(0.1,5.0);
+        }
+
+        if (!interrupting)
+        {   // Waypoint at object location to enforce straighness, and contact with object
+            Vector xW1 = (xdstart+ xdend)/2.0;
+            printf("Waypoint at: x=(%s); o=(%s)\n",xW1.toString(3,3).c_str(),odstart.toString(3,3).c_str());
+            iCartCtrl->goToPoseSync(xW1,odstart,1.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
         if (!interrupting)
         {   // Second action component: slide the tool to the oppoiste side of the circle through the center, were the object is
             printf("moving to: x=(%s); o=(%s)\n",xdend.toString(3,3).c_str(),odend.toString(3,3).c_str());
-            iCartCtrl->goToPoseSync(xdend,odend,3.5);
+            iCartCtrl->goToPoseSync(xdend,odend,1.5);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
 
@@ -1423,6 +1453,9 @@ protected:
             iCartCtrl->goToPoseSync(xC,odend,2.0);
             iCartCtrl->waitMotionDone(0.1,5.0);
         }
+
+
+        iCartCtrl->removeTipFrame();            // to restore the center of the palm as actual end-effector for other uses (such as go Home)
 
         iCartCtrl->restoreContext(context);
         iCartCtrl->deleteContext(context);
