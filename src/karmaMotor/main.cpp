@@ -1196,7 +1196,7 @@ protected:
 
         // If not an action simulation and a valid radius has been found:
         // execute the movements
-        Vector offs(3,0.0); offs[2]=0.06;
+        Vector offs(3,0.0); offs[2]=0.08;
         radius = rad;
 
         if (!interrupting)
